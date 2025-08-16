@@ -1,0 +1,672 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { BookOpen, Brain, FileText, Languages, Target, TrendingUp, Clock, CheckCircle, AlertCircle, Star, Upload, Save, Search, X, Plus, Book, Users, Play, Pause, RotateCcw, Download, RefreshCw } from 'lucide-react';
+
+// Enhanced sample data
+const vocabularyCollections = [
+  { id: 1, name: "Academic Words", words: ['analyze', 'evaluate', 'contribute'] },
+  { id: 2, name: "Daily News", words: ['accomplish', 'demonstrate'] },
+  { id: 3, name: "THPT Preparation", words: ['significant', 'essential'] },
+  { id: 4, name: "Uploaded Vocabulary", words: [] }
+];
+
+const sampleExamData = {
+  questions: [
+    {
+      id: 1,
+      type: "single",
+      question: "Choose the correct tense: 'By next year, I _____ my studies.'",
+      options: ["A. will complete", "B. will have completed", "C. complete", "D. completed"],
+      correct: 1,
+      knowledge: "Future Perfect Tense",
+      difficulty: "Vận dụng",
+      explanation: "Future Perfect được dùng để diễn tả hành động hoàn thành trước một thời điểm trong tương lai."
+    },
+    {
+      id: 2,
+      type: "reading_cluster",
+      passage: "Climate change represents one of the most significant challenges facing humanity today. The increasing concentration of greenhouse gases in the atmosphere has led to a gradual warming of the planet, resulting in unprecedented changes to weather patterns, sea levels, and ecosystems worldwide.",
+      questions: [
+        {
+          id: "2a",
+          question: "What is the main cause of climate change according to the passage?",
+          options: ["A. Natural disasters", "B. Human activities", "C. Ocean currents", "D. Solar radiation"],
+          correct: 1,
+          knowledge: "Reading Comprehension - Main Idea",
+          difficulty: "Thông hiểu"
+        },
+        {
+          id: "2b", 
+          question: "The word 'unprecedented' is closest in meaning to:",
+          options: ["A. Expected", "B. Minor", "C. Never seen before", "D. Temporary"],
+          correct: 2,
+          knowledge: "Vocabulary in Context",
+          difficulty: "Nhận biết"
+        }
+      ]
+    }
+  ]
+};
+
+const SmartEnglishLearning = () => {
+  // States
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [currentFlashcard, setCurrentFlashcard] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [selectedCollection, setSelectedCollection] = useState(1);
+  const [flashcardMode, setFlashcardMode] = useState('collection');
+  const [uploadedVocab, setUploadedVocab] = useState([]);
+  const [cardDifficulty, setCardDifficulty] = useState({});
+  const [showDictionary, setShowDictionary] = useState(false);
+  const [dictionaryWord, setDictionaryWord] = useState('');
+  const [dictionaryPosition, setDictionaryPosition] = useState({ x: 0, y: 0 });
+  const [examMode, setExamMode] = useState(false);
+  const [currentExamQuestion, setCurrentExamQuestion] = useState(0);
+  const [examAnswers, setExamAnswers] = useState({});
+  const [examTime, setExamTime] = useState(3600);
+  const [examResults, setExamResults] = useState(null);
+  const [showResults, setShowResults] = useState(false);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [savedWords, setSavedWords] = useState([]);
+  
+  const csvInputRef = useRef(null);
+
+  const tabs = [
+    { id: 'dashboard', label: 'Tổng Quan', icon: TrendingUp },
+    { id: 'flashcards', label: 'Flashcards', icon: Brain },
+    { id: 'vocabulary', label: 'Sổ Từ Vựng', icon: Book },
+    { id: 'practice', label: 'Luyện Thi', icon: Target }
+  ];
+
+  // Timer effect
+  useEffect(() => {
+    let interval;
+    if (timerRunning && examTime > 0) {
+      interval = setInterval(() => {
+        setExamTime(time => {
+          if (time <= 1) {
+            setTimerRunning(false);
+            finishExam();
+            return 0;
+          }
+          return time - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [timerRunning, examTime]);
+
+  // Dictionary popup
+  useEffect(() => {
+    const handleDoubleClick = (e) => {
+      const selection = window.getSelection();
+      const selectedText = selection.toString().trim();
+      
+      if (selectedText && /^[a-zA-Z]+$/.test(selectedText)) {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        
+        setDictionaryWord(selectedText.toLowerCase());
+        setDictionaryPosition({
+          x: rect.left,
+          y: rect.bottom + window.scrollY
+        });
+        setShowDictionary(true);
+      }
+    };
+
+    document.addEventListener('dblclick', handleDoubleClick);
+    return () => document.removeEventListener('dblclick', handleDoubleClick);
+  }, []);
+
+  // Dictionary data
+  const getDictionaryData = (word) => {
+    const fullDictionary = {
+      'analyze': {
+        type: '(v)',
+        ipa: '/ˈænəlaɪz/',
+        meaning: 'phân tích, xem xét kỹ lưỡng để hiểu rõ bản chất hoặc cấu trúc của cái gì đó',
+        example: 'Scientists analyze data to draw meaningful conclusions about climate change patterns.',
+        collocations: 'analyze data, analyze results, analyze information, analyze the situation, analyze trends',
+        synonyms: ['examine', 'study', 'investigate', 'scrutinize', 'dissect', 'evaluate'],
+        antonyms: ['synthesize', 'combine', 'merge', 'integrate'],
+        derivatives: 'analysis (n), analyst (n), analytical (adj), analytically (adv)',
+        usage: 'Formal and academic contexts, scientific research, business analysis'
+      }
+    };
+    
+    return fullDictionary[word] || {
+      type: '(n)',
+      ipa: '/wɜːrd/',
+      meaning: 'từ, đơn vị ngôn ngữ có nghĩa độc lập',
+      example: 'Please look up this word in the dictionary to understand its meaning.',
+      collocations: 'spoken word, written word, key word, word choice',
+      synonyms: ['term', 'expression', 'vocabulary'],
+      antonyms: [],
+      derivatives: 'wordy (adj), wordless (adj), wording (n)',
+      usage: 'General vocabulary, linguistics'
+    };
+  };
+
+  // Anki algorithm
+  const getNextReviewTime = (difficulty) => {
+    const intervals = {
+      'again': 1,
+      'hard': 4,
+      'good': 10,
+      'easy': 25
+    };
+    return intervals[difficulty] || 1;
+  };
+
+  const updateCardDifficulty = (cardId, difficulty) => {
+    const nextReview = Date.now() + (getNextReviewTime(difficulty) * 24 * 60 * 60 * 1000);
+    setCardDifficulty(prev => ({
+      ...prev,
+      [cardId]: {
+        difficulty,
+        nextReview,
+        reviews: (prev[cardId]?.reviews || 0) + 1
+      }
+    }));
+  };
+
+  // Exam functions
+  const startExam = () => {
+    setExamMode(true);
+    setCurrentExamQuestion(0);
+    setExamAnswers({});
+    setExamTime(3600);
+    setTimerRunning(true);
+    setShowResults(false);
+  };
+
+  const finishExam = () => {
+    setTimerRunning(false);
+    analyzeExamResults();
+    setShowResults(true);
+  };
+
+  const analyzeExamResults = () => {
+    const results = [];
+    const knowledgeGroups = {};
+
+    sampleExamData.questions.forEach(q => {
+      if (q.type === 'single') {
+        const isCorrect = examAnswers[q.id] === q.correct;
+        const knowledge = q.knowledge;
+        
+        if (!knowledgeGroups[knowledge]) {
+          knowledgeGroups[knowledge] = {
+            questions: [],
+            correct: 0,
+            total: 0
+          };
+        }
+        
+        knowledgeGroups[knowledge].questions.push(q.id);
+        knowledgeGroups[knowledge].total++;
+        if (isCorrect) knowledgeGroups[knowledge].correct++;
+        
+      } else if (q.type === 'reading_cluster') {
+        q.questions.forEach(subQ => {
+          const isCorrect = examAnswers[subQ.id] === subQ.correct;
+          const knowledge = subQ.knowledge;
+          
+          if (!knowledgeGroups[knowledge]) {
+            knowledgeGroups[knowledge] = {
+              questions: [],
+              correct: 0,
+              total: 0
+            };
+          }
+          
+          knowledgeGroups[knowledge].questions.push(subQ.id);
+          knowledgeGroups[knowledge].total++;
+          if (isCorrect) knowledgeGroups[knowledge].correct++;
+        });
+      }
+    });
+
+    Object.entries(knowledgeGroups).forEach(([knowledge, data], index) => {
+      results.push({
+        stt: index + 1,
+        knowledge,
+        questions: data.questions.join(', '),
+        correct: data.correct,
+        total: data.total,
+        percentage: Math.round((data.correct / data.total) * 100)
+      });
+    });
+
+    setExamResults(results);
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // CSV functions
+  const exportToCSV = () => {
+    const headers = ['Word', 'Type', 'IPA', 'Meaning', 'Example', 'Collocations', 'Synonyms', 'Antonyms'];
+    const csvContent = [
+      headers.join(','),
+      ...savedWords.map(word => [
+        word.word,
+        word.type || '',
+        word.ipa || '',
+        `"${word.meaning || ''}"`,
+        `"${word.example || ''}"`,
+        `"${word.collocations || ''}"`,
+        `"${(word.synonyms || []).join('; ')}"`,
+        `"${(word.antonyms || []).join('; ')}"`,
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'vocabulary.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleCSVUpload = async (event) => {
+    const file = event.target.files[0];
+    if (file && file.type === 'text/csv') {
+      const text = await file.text();
+      const lines = text.split('\n').filter(line => line.trim());
+      const vocab = lines.slice(1).map((line, index) => {
+        const values = line.split(',');
+        return {
+          id: Date.now() + index,
+          word: values[0] || '',
+          type: values[1] || '',
+          ipa: values[2] || '',
+          meaning: values[3]?.replace(/"/g, '') || '',
+          example: values[4]?.replace(/"/g, '') || '',
+          collectionId: 4
+        };
+      });
+      
+      setUploadedVocab(vocab);
+    }
+  };
+
+  const saveWordToCollection = (word, collectionId) => {
+    const wordData = getDictionaryData(word);
+    const newWord = {
+      id: Date.now(),
+      word: word,
+      collectionId: collectionId,
+      ...wordData,
+      dateAdded: new Date().toISOString()
+    };
+    
+    setSavedWords(prev => [...prev, newWord]);
+    setShowDictionary(false);
+  };
+
+  // Dictionary Popup Component
+  const DictionaryPopup = ({ word, position, onClose, onSave }) => {
+    const dictData = getDictionaryData(word);
+    
+    return (
+      <div 
+        className="fixed z-50 bg-white border-2 border-blue-300 rounded-lg shadow-2xl w-96 max-h-96 overflow-hidden"
+        style={{ 
+          left: Math.min(position.x, window.innerWidth - 384), 
+          top: position.y + 10 
+        }}
+      >
+        <div className="flex justify-between items-center p-3 bg-blue-50 border-b">
+          <div className="flex items-center space-x-2">
+            <span className="font-bold text-blue-800 text-lg">{word}</span>
+            <span className="text-gray-600 text-sm">{dictData.type}</span>
+            <span className="text-gray-600 text-sm">{dictData.ipa}</span>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 p-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        
+        <div className="p-4 max-h-80 overflow-y-auto">
+          <div className="mb-3">
+            <div className="text-lg font-semibold text-blue-700 leading-snug">{dictData.meaning}</div>
+          </div>
+          
+          <div className="mb-3">
+            <strong className="text-sm font-medium text-gray-700">Ex:</strong>
+            <p className="text-sm text-gray-700 mt-1 italic leading-relaxed">{dictData.example}</p>
+          </div>
+          
+          <div className="mb-3">
+            <strong className="text-sm font-medium text-gray-700">Col:</strong>
+            <p className="text-sm text-gray-700 mt-1 leading-relaxed">{dictData.collocations}</p>
+          </div>
+          
+          <div className="mb-3">
+            <strong className="text-sm font-medium text-gray-700">Syn:</strong>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {dictData.synonyms.map((syn, index) => (
+                <span key={index} className="bg-blue-500 text-white px-2 py-1 rounded-full text-xs">
+                  {syn}
+                </span>
+              ))}
+            </div>
+          </div>
+          
+          {dictData.antonyms.length > 0 && (
+            <div className="mb-3">
+              <strong className="text-sm font-medium text-gray-700">Ant:</strong>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {dictData.antonyms.map((ant, index) => (
+                  <span key={index} className="bg-red-500 text-white px-2 py-1 rounded-full text-xs">
+                    {ant}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        
+        <div className="flex space-x-2 p-3 bg-gray-50 border-t">
+          <select className="text-xs border rounded px-2 py-1 flex-1">
+            {vocabularyCollections.map(col => (
+              <option key={col.id} value={col.id}>{col.name}</option>
+            ))}
+          </select>
+          <button 
+            onClick={() => saveWordToCollection(word, 1)}
+            className="bg-green-500 text-white px-3 py-1 rounded text-xs hover:bg-green-600 flex items-center"
+          >
+            <Save className="w-3 h-3 mr-1" />
+            Save
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Exam Interface
+  const ExamInterface = () => {
+    const currentQ = sampleExamData.questions[currentExamQuestion];
+    
+    if (!currentQ) return null;
+
+    if (currentQ.type === 'reading_cluster') {
+      return (
+        <div className="h-screen bg-gray-50 p-4">
+          <div className="fixed top-4 right-4 bg-white rounded-lg shadow-lg p-3 z-40">
+            <div className="flex items-center space-x-2">
+              <Clock className="w-5 h-5 text-blue-600" />
+              <span className="text-lg font-mono font-bold text-blue-600">
+                {formatTime(examTime)}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6 h-full">
+            <div className="bg-white rounded-lg shadow-lg p-6 overflow-y-auto">
+              <h3 className="text-lg font-bold mb-4">Reading Passage</h3>
+              <div className="prose max-w-none leading-relaxed text-justify">
+                {currentQ.passage}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-lg p-6 overflow-y-auto">
+              <h3 className="text-lg font-bold mb-4">Questions</h3>
+              <div className="space-y-6">
+                {currentQ.questions.map((q, index) => (
+                  <div key={q.id} className="border-b pb-4">
+                    <p className="font-medium mb-3">{index + 1}. {q.question}</p>
+                    <div className="space-y-2">
+                      {q.options.map((option, optIndex) => (
+                        <label key={optIndex} className="flex items-center p-2 hover:bg-gray-50 rounded">
+                          <input 
+                            type="radio" 
+                            name={q.id}
+                            value={optIndex}
+                            onChange={(e) => setExamAnswers(prev => ({
+                              ...prev, 
+                              [q.id]: parseInt(e.target.value)
+                            }))}
+                            className="mr-3" 
+                          />
+                          <span>{option}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="flex justify-between mt-6">
+                <button 
+                  onClick={() => setCurrentExamQuestion(prev => Math.max(0, prev - 1))}
+                  disabled={currentExamQuestion === 0}
+                  className="bg-gray-500 text-white px-4 py-2 rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button 
+                  onClick={() => {
+                    if (currentExamQuestion === sampleExamData.questions.length - 1) {
+                      finishExam();
+                    } else {
+                      setCurrentExamQuestion(prev => prev + 1);
+                    }
+                  }}
+                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                >
+                  {currentExamQuestion === sampleExamData.questions.length - 1 ? 'Finish' : 'Next'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    } else {
+      return (
+        <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8">
+          <div className="fixed top-4 right-4 bg-white rounded-lg shadow-lg p-3 z-40">
+            <div className="flex items-center space-x-2">
+              <Clock className="w-5 h-5 text-blue-600" />
+              <span className="text-lg font-mono font-bold text-blue-600">
+                {formatTime(examTime)}
+              </span>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold">Question {currentExamQuestion + 1} of {sampleExamData.questions.length}</h3>
+              <div className="text-sm text-gray-500">
+                Progress: {Math.round(((currentExamQuestion + 1) / sampleExamData.questions.length) * 100)}%
+              </div>
+            </div>
+            
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-6">
+              <div 
+                className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
+                style={{width: `${((currentExamQuestion + 1) / sampleExamData.questions.length) * 100}%`}}
+              ></div>
+            </div>
+          </div>
+
+          <div className="mb-8">
+            <p className="text-lg mb-6">{currentQ.question}</p>
+            <div className="space-y-3">
+              {currentQ.options.map((option, index) => (
+                <label key={index} className="flex items-center p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name={currentQ.id}
+                    value={index}
+                    onChange={(e) => setExamAnswers(prev => ({
+                      ...prev, 
+                      [currentQ.id]: parseInt(e.target.value)
+                    }))}
+                    className="mr-3" 
+                  />
+                  <span className="flex-1">{option}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex justify-between">
+            <button 
+              onClick={() => setCurrentExamQuestion(prev => Math.max(0, prev - 1))}
+              disabled={currentExamQuestion === 0}
+              className="bg-gray-500 text-white px-6 py-2 rounded disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button 
+              onClick={() => {
+                if (currentExamQuestion === sampleExamData.questions.length - 1) {
+                  finishExam();
+                } else {
+                  setCurrentExamQuestion(prev => prev + 1);
+                }
+              }}
+              className="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
+            >
+              {currentExamQuestion === sampleExamData.questions.length - 1 ? 'Finish Exam' : 'Next Question'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+  };
+
+  // Exam Results
+  const ExamResults = () => (
+    <div className="bg-white rounded-lg shadow-lg p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-2xl font-bold">Kết Quả Thi và Phân Tích Thống Kê</h3>
+        <div className="flex space-x-3">
+          <button 
+            onClick={startExam}
+            className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 flex items-center"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Làm Lại
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-blue-50 p-4 rounded-lg text-center">
+          <div className="text-3xl font-bold text-blue-600">85%</div>
+          <div className="text-sm text-blue-600">Tỉ Lệ Hoàn Thành</div>
+        </div>
+        <div className="bg-green-50 p-4 rounded-lg text-center">
+          <div className="text-3xl font-bold text-green-600">7.5</div>
+          <div className="text-sm text-green-600">Điểm Số</div>
+        </div>
+        <div className="bg-purple-50 p-4 rounded-lg text-center">
+          <div className="text-3xl font-bold text-purple-600">{formatTime(3600 - examTime)}</div>
+          <div className="text-sm text-purple-600">Thời Gian Làm Bài</div>
+        </div>
+        <div className="bg-orange-50 p-4 rounded-lg text-center">
+          <div className="text-3xl font-bold text-orange-600">
+            {examResults?.reduce((sum, r) => sum + r.correct, 0) || 2}/3
+          </div>
+          <div className="text-sm text-orange-600">Câu Đúng</div>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <h4 className="text-lg font-bold mb-4">Phân Tích Kiến Thức Chi Tiết</h4>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse border">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="border p-3 text-left">STT</th>
+                <th className="border p-3 text-left">Kiến Thức</th>
+                <th className="border p-3 text-left">Câu</th>
+                <th className="border p-3 text-left">Số Câu Đúng</th>
+                <th className="border p-3 text-left">Tỷ Lệ Đúng</th>
+                <th className="border p-3 text-left">Hành Động</th>
+              </tr>
+            </thead>
+            <tbody>
+              {examResults?.map((result, index) => (
+                <tr key={index} className={result.percentage < 50 ? 'bg-red-50' : result.percentage < 80 ? 'bg-yellow-50' : 'bg-green-50'}>
+                  <td className="border p-3">{result.stt}</td>
+                  <td className="border p-3 font-medium">{result.knowledge}</td>
+                  <td className="border p-3">{result.questions}</td>
+                  <td className="border p-3">{result.correct}/{result.total}</td>
+                  <td className="border p-3">
+                    <span className={`font-bold ${result.percentage < 50 ? 'text-red-600' : result.percentage < 80 ? 'text-yellow-600' : 'text-green-600'}`}>
+                      {result.percentage}%
+                    </span>
+                  </td>
+                  <td className="border p-3">
+                    <div className="flex space-x-2">
+                      {result.percentage < 50 ? (
+                        <button className="bg-red-500 text-white px-3 py-1 rounded-full text-xs hover:bg-red-600">
+                          Học lại
+                        </button>
+                      ) : result.percentage < 80 ? (
+                        <button className="bg-green-500 text-white px-3 py-1 rounded-full text-xs hover:bg-green-600">
+                          Ôn lại
+                        </button>
+                      ) : (
+                        <span className="text-green-600 text-xs">✓ Thành thạo</span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )) || (
+                <tr>
+                  <td className="border p-3">1</td>
+                  <td className="border p-3 font-medium">Future Perfect Tense</td>
+                  <td className="border p-3">1</td>
+                  <td className="border p-3">1/1</td>
+                  <td className="border p-3"><span className="font-bold text-green-600">100%</span></td>
+                  <td className="border p-3"><span className="text-green-600 text-xs">✓ Thành thạo</span></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <h4 className="text-lg font-bold mb-4">Phân Tích Độ Khó Câu Hỏi</h4>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {['Nhận biết', 'Thông hiểu', 'Vận dụng', 'Vận dụng cao'].map(level => (
+            <div key={level} className="border rounded-lg p-4 text-center">
+              <div className="text-lg font-bold text-gray-700">{level}</div>
+              <div className="text-2xl font-bold text-blue-600 my-2">1/1</div>
+              <div className="text-sm text-gray-500">100% đúng</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Flashcards Tab
+  const FlashcardsTab = () => {
+    const getCardsToReview = () => {
+      const now = Date.now();
+      if (flashcardMode === 'uploaded') {
+        return uploadedVocab.filter(card => 
+          !cardDifficulty[card.id] || cardDifficulty[card.id].nextReview <= now
+        );
+      } else {
+        const collectionWords = savedWords.filter(word => word.collectionId === selectedCollection);
+        return collectionWords.filter(card => 
+          !cardDifficulty[card.id] || cardDifficulty[card.id].nextReview <= now
+        );
+      }
+    };
+
+    const reviewCards = getCardsToReview();
+    const currentWord = reviewCards[currentFlashcard] || (flashcardMode === 'uploaded' ? uploadedVocab[0] : savedWords[0
